@@ -13,6 +13,16 @@ var (
 	value = []byte("test-value")
 )
 
+// TODO: Look into why this improves benchmark results.
+// func init() {
+// 	c := NewFastChan(4096)
+// 	go func() {
+//		for {
+//			c.Read()
+//		}
+//	}()
+//  }
+
 func TestFastChan(t *testing.T) {
 	c := NewFastChan(4096)
 	c.Put(value)
