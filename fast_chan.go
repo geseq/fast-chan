@@ -71,12 +71,12 @@ func NewFastChan(size uint64) *FastChan {
 
 // Put writes a CacheItem to the front of the channel
 func (c *FastChan) Put(value CacheItem) {
-	var myIndex = atomic.AddUint64(&c.nextFreeIndex, 1)
 	//Wait for reader to catch up, so we don't clobber a slot which it is (or will be) reading
-	for myIndex > (atomic.LoadUint64(&c.readerIndex) + c.indexMask) {
+	for atomic.LoadUint64(&c.nextFreeIndex)+1 > (atomic.LoadUint64(&c.readerIndex) + c.indexMask) {
 		runtime.Gosched()
 	}
 
+	var myIndex = atomic.AddUint64(&c.nextFreeIndex, 1)
 	//Write the item into it's slot
 	c.contents[myIndex&c.indexMask] = value
 
@@ -88,11 +88,12 @@ func (c *FastChan) Put(value CacheItem) {
 
 // Read reads and removes a CacheItem from the back of the channel
 func (c *FastChan) Read() CacheItem {
-	var myIndex = atomic.AddUint64(&c.readerIndex, 1)
 	//If reader has out-run writer, wait for a value to be committed
-	for myIndex > atomic.LoadUint64(&c.lastCommittedIndex) {
+	for atomic.LoadUint64(&c.readerIndex)+1 > atomic.LoadUint64(&c.lastCommittedIndex) {
 		runtime.Gosched()
 	}
+
+	var myIndex = atomic.AddUint64(&c.readerIndex, 1)
 	return c.contents[myIndex&c.indexMask]
 }
 
