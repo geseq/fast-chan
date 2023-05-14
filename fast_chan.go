@@ -62,8 +62,8 @@ func NewFastChan(size uint64) *FastChan {
 	size = roundUpNextPowerOfTwo(size)
 	return &FastChan{
 		lastCommittedIndex: 0,
-		nextFreeIndex:      0,
-		readerIndex:        0,
+		nextFreeIndex:      1,
+		readerIndex:        1,
 		indexMask:          size - 1,
 		contents:           make([]CacheItem, size),
 	}
@@ -71,16 +71,14 @@ func NewFastChan(size uint64) *FastChan {
 
 // Put writes a CacheItem to the front of the channel
 func (c *FastChan) Put(value CacheItem) {
-	//Wait for reader to catch up, so we don't clobber a slot which it is (or will be) reading
-	for atomic.LoadUint64(&c.nextFreeIndex)+1 > (atomic.LoadUint64(&c.readerIndex) + c.indexMask) {
+	myIndex := atomic.AddUint64(&c.nextFreeIndex, 1) - 1
+
+	for myIndex > (atomic.LoadUint64(&c.readerIndex) + c.indexMask) {
 		runtime.Gosched()
 	}
 
-	var myIndex = atomic.AddUint64(&c.nextFreeIndex, 1)
-	//Write the item into it's slot
 	c.contents[myIndex&c.indexMask] = value
 
-	//Increment the lastCommittedIndex so the item is available for reading
 	for !atomic.CompareAndSwapUint64(&c.lastCommittedIndex, myIndex-1, myIndex) {
 		runtime.Gosched()
 	}
@@ -89,24 +87,26 @@ func (c *FastChan) Put(value CacheItem) {
 // Read reads and removes a CacheItem from the back of the channel
 func (c *FastChan) Read() CacheItem {
 	//If reader has out-run writer, wait for a value to be committed
-	for atomic.LoadUint64(&c.readerIndex)+1 > atomic.LoadUint64(&c.lastCommittedIndex) {
+	for atomic.LoadUint64(&c.readerIndex) > atomic.LoadUint64(&c.lastCommittedIndex) {
 		runtime.Gosched()
 	}
 
-	var myIndex = atomic.AddUint64(&c.readerIndex, 1)
-	return c.contents[myIndex&c.indexMask]
+	contents := c.contents[atomic.LoadUint64(&c.readerIndex)&c.indexMask]
+
+	atomic.AddUint64(&c.readerIndex, 1)
+	return contents
 }
 
 // Empty the channel
 func (c *FastChan) Empty() {
 	c.lastCommittedIndex = 0
-	c.nextFreeIndex = 0
-	c.readerIndex = 0
+	c.nextFreeIndex = 1
+	c.readerIndex = 1
 }
 
 // Size gets the size of the contents in the channel buffer
 func (c *FastChan) Size() uint64 {
-	return atomic.LoadUint64(&c.lastCommittedIndex) - atomic.LoadUint64(&c.readerIndex)
+	return atomic.LoadUint64(&c.lastCommittedIndex) - atomic.LoadUint64(&c.readerIndex) + 1
 }
 
 // IsEmpty checks if the channel is empty
