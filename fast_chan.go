@@ -79,9 +79,7 @@ func (c *FastChan) Put(value CacheItem) {
 
 	c.contents[myIndex&c.indexMask] = value
 
-	for !atomic.CompareAndSwapUint64(&c.lastCommittedIndex, myIndex-1, myIndex) {
-		runtime.Gosched()
-	}
+	atomic.StoreUint64(&c.lastCommittedIndex, myIndex)
 }
 
 // Read reads and removes a CacheItem from the back of the channel
